@@ -10,11 +10,11 @@ import { ExerciseLog, RPELevel, SetLog, WorkoutSession } from '@/lib/types';
 type Phase = 'setup' | 'active' | 'complete';
 
 const RPE_OPTIONS: { value: RPELevel; emoji: string; label: string; sublabel: string }[] = [
-  { value: 'warmup',  emoji: '😊', label: 'Easy',     sublabel: 'Barely any effort' },
-  { value: 'rpe1-5',  emoji: '🙂', label: 'Light',    sublabel: 'Could go all day' },
-  { value: 'rpe6-7',  emoji: '😐', label: 'Moderate', sublabel: 'Breathing harder' },
-  { value: 'rpe8-9',  emoji: '😥', label: 'Hard',     sublabel: 'A couple reps left' },
-  { value: 'rpe10',   emoji: '🥵', label: 'Max',      sublabel: 'Nothing left' },
+  { value: 'warmup',  emoji: '😊', label: 'Warmup',   sublabel: 'Barely any effort' },
+  { value: 'rpe1-5',  emoji: '🙂', label: 'RPE 1–5',  sublabel: 'Could go all day' },
+  { value: 'rpe6-7',  emoji: '😐', label: 'RPE 6–7',  sublabel: 'Breathing harder' },
+  { value: 'rpe8-9',  emoji: '😥', label: 'RPE 8–9',  sublabel: 'A couple reps left' },
+  { value: 'rpe10',   emoji: '🥵', label: 'RPE 10',   sublabel: 'Nothing left' },
 ];
 
 function buildInitialLogs(dayId: number, pct: number, last: WorkoutSession | null): ExerciseLog[] {
@@ -305,7 +305,7 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
                       : 'border-outline-variant bg-surface text-on-surface-variant'
                   }`}
                 >
-                  {ex.name.split(' ').slice(0, 2).join(' ')}
+                  {i + 1}
                 </button>
               );
             })}
