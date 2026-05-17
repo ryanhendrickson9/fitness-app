@@ -11,22 +11,8 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
 }
 
-function getNextDayId(sessions: Record<number, WorkoutSession | null>): number {
-  const completed = WORKOUT_DAYS.filter((d) => sessions[d.id]?.completed);
-  if (completed.length === 0) return 1;
-  if (completed.length === WORKOUT_DAYS.length) return WORKOUT_DAYS[0].id;
-  const lastDone = completed.sort((a, b) => {
-    const aDate = sessions[a.id]?.date ?? '';
-    const bDate = sessions[b.id]?.date ?? '';
-    return bDate.localeCompare(aDate);
-  })[0];
-  const nextIdx = (WORKOUT_DAYS.findIndex((d) => d.id === lastDone.id) + 1) % WORKOUT_DAYS.length;
-  return WORKOUT_DAYS[nextIdx].id;
-}
-
 export default function Home() {
   const [sessions, setSessions] = useState<Record<number, WorkoutSession | null>>({});
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const data: Record<number, WorkoutSession | null> = {};
@@ -34,13 +20,8 @@ export default function Home() {
       WORKOUT_DAYS.map(async (day) => {
         data[day.id] = await getLastSessionForDay(day.id);
       })
-    ).then(() => {
-      setSessions({ ...data });
-      setLoading(false);
-    });
+    ).then(() => setSessions({ ...data }));
   }, []);
-
-  const nextDayId = loading ? -1 : getNextDayId(sessions);
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32">
@@ -70,69 +51,55 @@ export default function Home() {
             {WORKOUT_DAYS.map((day) => {
               const last = sessions[day.id];
               const isDone = !!last?.completed;
-              const isNext = day.id === nextDayId && !loading;
+
+              // Always exactly 3 bullets: show 2 + "[N] more" if over 3, otherwise all
+              const showAll = day.exercises.length <= 3;
+              const bullets = showAll ? day.exercises : day.exercises.slice(0, 2);
+              const moreCount = showAll ? 0 : day.exercises.length - 2;
 
               return (
                 <Link key={day.id} href={`/session/${day.id}`}>
-                  <div
-                    className={`rounded-[24px] p-6 border transition-transform active:scale-[0.98] duration-200 cursor-pointer ${
-                      isNext
-                        ? 'bg-white border-primary shadow-[0px_10px_30px_rgba(99,102,241,0.1)]'
-                        : 'bg-surface-container-low border-outline-variant/30'
-                    }`}
-                  >
+                  <div className="rounded-[24px] p-6 bg-surface-container-low border border-outline-variant/30 transition-transform active:scale-[0.98] duration-200 cursor-pointer hover:border-outline-variant">
+                    {/* Header */}
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <span className={`text-label-sm uppercase tracking-wider ${isNext ? 'text-primary font-bold' : 'text-on-surface-variant'}`}>
-                          {isNext ? 'Next Up' : `Day ${day.id}`}
+                        <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">
+                          Day {day.id}
                         </span>
                         <h4 className="text-headline-md mt-1">{day.focus}</h4>
                       </div>
                       {isDone ? (
-                        <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary">
+                        <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary flex-shrink-0">
                           <span className="material-symbols-outlined text-[18px] icon-filled">check_circle</span>
                           <span className="text-label-sm">Done {formatDate(last!.date)}</span>
                         </div>
-                      ) : isNext ? (
-                        <div className="w-10 h-10 flex items-center justify-center rounded-full bg-primary text-white">
-                          <span className="material-symbols-outlined">play_arrow</span>
-                        </div>
                       ) : (
-                        <div className="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-highest text-on-surface-variant">
+                        <div className="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-highest text-on-surface-variant flex-shrink-0">
                           <span className="material-symbols-outlined">fitness_center</span>
                         </div>
                       )}
                     </div>
 
+                    {/* Exactly 3 bullets */}
                     <ul className="space-y-2 mb-6 text-on-surface-variant text-body-md">
-                      {day.exercises.slice(0, 3).map((ex) => (
+                      {bullets.map((ex) => (
                         <li key={ex.name} className="flex items-center gap-2">
                           <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                           {ex.name}
                         </li>
                       ))}
-                      {day.exercises.length > 3 && (
+                      {moreCount > 0 && (
                         <li className="flex items-center gap-2 text-on-surface-variant/60">
                           <div className="w-1.5 h-1.5 rounded-full bg-outline flex-shrink-0" />
-                          +{day.exercises.length - 3} more
+                          +{moreCount} more
                         </li>
                       )}
                     </ul>
 
-                    {isNext ? (
-                      <button className="w-full py-4 rounded-xl bg-primary text-on-primary text-label-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-                        <span className="material-symbols-outlined text-[18px] icon-filled">play_arrow</span>
-                        Start Session
-                      </button>
-                    ) : isDone ? (
-                      <button className="w-full py-3 rounded-xl border border-primary text-primary text-label-md hover:bg-primary/5 transition-colors">
-                        Start Again
-                      </button>
-                    ) : (
-                      <button className="w-full py-3 rounded-xl border border-outline-variant text-on-surface-variant text-label-md hover:bg-surface-container transition-colors">
-                        Start Session
-                      </button>
-                    )}
+                    {/* Consistent neutral CTA */}
+                    <button className="w-full py-3 rounded-xl border border-outline-variant text-on-surface-variant text-label-md hover:bg-surface-container hover:border-primary hover:text-primary transition-colors">
+                      {isDone ? 'Start Again' : 'Start Session'}
+                    </button>
                   </div>
                 </Link>
               );
