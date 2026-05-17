@@ -47,6 +47,8 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   const [rpe, setRpe] = useState<RPELevel | null>(null);
   const [lastSession, setLastSession] = useState<WorkoutSession | null>(null);
   const [activeExercise, setActiveExercise] = useState(0);
+  const [activeSet, setActiveSet] = useState(0);
+  const [confirmNext, setConfirmNext] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -69,7 +71,14 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   function startWorkout() {
     setLogs(buildInitialLogs(dayId, pct, lastSession));
     setActiveExercise(0);
+    setActiveSet(0);
     setPhase('active');
+  }
+
+  function goToExercise(idx: number) {
+    setActiveExercise(idx);
+    setActiveSet(0);
+    setConfirmNext(false);
   }
 
   function updateSet(exIdx: number, si: number, field: 'weight' | 'reps', value: string) {
@@ -82,11 +91,33 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
     }));
   }
 
-  function toggleSet(exIdx: number, si: number) {
+  function setSetRpe(exIdx: number, si: number, rpeVal: RPELevel) {
     setLogs((prev) => prev.map((ex, ei) => ei !== exIdx ? ex : {
       ...ex,
-      sets: ex.sets.map((s, i) => i !== si ? s : { ...s, completed: !s.completed }),
+      sets: ex.sets.map((s, i) => i !== si ? s : { ...s, rpe: rpeVal }),
     }));
+  }
+
+  function logSet(exIdx: number, si: number) {
+    setLogs((prev) => prev.map((ex, ei) => ei !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, i) => {
+        if (i === si) return { ...s, completed: true };
+        if (i === si + 1 && !s.completed) return { ...s, weight: ex.sets[si].weight ?? s.weight };
+        return s;
+      }),
+    }));
+    const totalSets = logs[exIdx]?.sets.length ?? 0;
+    if (si < totalSets - 1) setActiveSet(si + 1);
+  }
+
+  function tryNextExercise() {
+    const allDoneForCurrent = logs[activeExercise]?.sets.every((s) => s.completed);
+    if (!allDoneForCurrent) {
+      setConfirmNext(true);
+    } else {
+      goToExercise(activeExercise + 1);
+    }
   }
 
   async function finishWorkout() {
@@ -102,9 +133,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
     });
     router.push('/');
   }
-
-  const currentEx = day.exercises[activeExercise];
-  const currentLog = logs[activeExercise];
 
   // ── SETUP ─────────────────────────────────────────────────────
   if (phase === 'setup') {
@@ -230,14 +258,18 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
 
   // ── ACTIVE ────────────────────────────────────────────────────
   if (phase === 'active') {
+    const currentLog = logs[activeExercise];
+    const currentEx = day.exercises[activeExercise];
+    const totalSets = currentLog?.sets.length ?? 0;
+    const currentSetData = currentLog?.sets[activeSet];
+    const completedForEx = currentLog?.sets.filter((s) => s.completed).length ?? 0;
+
     return (
       <div className="bg-background text-on-background min-h-screen">
         {/* Top bar */}
         <header className="bg-surface border-b border-surface-container-highest flex flex-col w-full sticky top-0 z-50">
           <div className="flex justify-between items-center w-full px-[20px] h-16">
-            <div className="flex items-center gap-3">
-              <h1 className="text-headline-md text-primary tracking-tight">Pulse</h1>
-            </div>
+            <h1 className="text-headline-md text-primary tracking-tight">Pulse</h1>
             <button
               onClick={() => setPhase('complete')}
               className="text-label-md text-on-surface-variant border border-outline-variant px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors"
@@ -245,31 +277,26 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
               Finish
             </button>
           </div>
-          {/* Progress */}
           <div className="px-[20px] pb-4">
             <div className="flex justify-between items-end mb-2">
               <span className="text-label-sm text-on-surface-variant uppercase tracking-widest">Workout Progress</span>
               <span className="text-label-md text-primary">{activeExercise + 1} of {day.exercises.length} Exercises</span>
             </div>
             <div className="h-2 w-full bg-primary-fixed rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-500"
-                style={{ width: `${progress * 100}%` }}
-              />
+              <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progress * 100}%` }} />
             </div>
           </div>
         </header>
 
-        <main className="max-w-[640px] mx-auto px-[20px] py-[24px] flex flex-col gap-[24px] pb-40">
+        <main className="max-w-[640px] mx-auto px-[20px] py-6 flex flex-col gap-6 pb-40">
           {/* Exercise tabs */}
-          <nav className="flex gap-[16px] overflow-x-auto scrollbar-hide py-1 -mx-[20px] px-[20px]">
+          <nav className="flex gap-4 overflow-x-auto scrollbar-hide py-1 -mx-[20px] px-[20px]">
             {day.exercises.map((ex, i) => {
-              const exLog = logs[i];
-              const done = exLog?.sets.every((s) => s.completed);
+              const done = logs[i]?.sets.every((s) => s.completed);
               return (
                 <button
                   key={i}
-                  onClick={() => setActiveExercise(i)}
+                  onClick={() => goToExercise(i)}
                   className={`px-5 py-2 rounded-full border text-label-md whitespace-nowrap active:scale-95 transition-all ${
                     i === activeExercise
                       ? 'border-primary bg-primary text-on-primary'
@@ -284,134 +311,172 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
             })}
           </nav>
 
-          {/* Exercise card */}
           {currentLog && (
-            <section
-              className="bg-surface-container-lowest rounded-[24px] p-6 border border-surface-container"
-              style={{ boxShadow: '0px 10px 30px rgba(99,102,241,0.05)' }}
-            >
-              <div className="flex items-center gap-3 mb-[24px]">
-                <div className="w-12 h-12 bg-primary-fixed rounded-xl flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined text-[28px]">fitness_center</span>
-                </div>
+            <>
+              {/* Exercise name + set dots */}
+              <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-headline-lg text-on-surface">{currentEx.name}</h2>
-                  <p className="text-label-sm text-on-surface-variant uppercase tracking-wider">
-                    {currentEx.sets} Sets · {currentEx.reps}{typeof currentEx.reps === 'number' ? ' Reps' : ''}
-                    {currentEx.isBodyweight ? ' · Bodyweight' : ''}
-                    {currentEx.isTimeBased ? ' Hold' : ''}
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-1">{currentEx.name}</p>
+                  <p className="text-headline-md text-on-surface">Set {activeSet + 1} <span className="text-on-surface-variant font-normal">of {totalSets}</span></p>
+                </div>
+                <div className="flex gap-2">
+                  {currentLog.sets.map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setActiveSet(i)}
+                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all active:scale-90 ${
+                        i === activeSet
+                          ? 'border-primary bg-primary'
+                          : s.completed
+                          ? 'border-primary/40 bg-primary-fixed'
+                          : 'border-outline-variant bg-surface'
+                      }`}
+                    >
+                      {s.completed && i !== activeSet && (
+                        <span className="material-symbols-outlined text-[14px] text-primary icon-filled">check</span>
+                      )}
+                      {i === activeSet && <span className="text-label-sm text-on-primary font-bold">{i + 1}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Weight + Reps inputs */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-surface-container-lowest rounded-2xl p-5 border border-surface-container text-center" style={{ boxShadow: '0px 10px 30px rgba(99,102,241,0.05)' }}>
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-3">
+                    {currentEx.isTimeBased ? 'Duration' : 'Weight'}
                   </p>
+                  {currentEx.isBodyweight ? (
+                    <p className="text-display-lg text-on-surface">BW</p>
+                  ) : (
+                    <input
+                      type="number"
+                      value={currentSetData?.weight ?? ''}
+                      placeholder="0"
+                      onChange={(e) => updateSet(activeExercise, activeSet, 'weight', e.target.value)}
+                      className="text-display-lg text-primary bg-transparent border-none p-0 focus:ring-0 w-full outline-none text-center"
+                    />
+                  )}
+                  {!currentEx.isBodyweight && !currentEx.isTimeBased && (
+                    <p className="text-label-sm text-on-surface-variant mt-1">lbs</p>
+                  )}
+                </div>
+                <div className="bg-surface-container-lowest rounded-2xl p-5 border border-surface-container text-center" style={{ boxShadow: '0px 10px 30px rgba(99,102,241,0.05)' }}>
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-3">Reps</p>
+                  {currentEx.isTimeBased ? (
+                    <p className="text-display-lg text-on-surface-variant">—</p>
+                  ) : (
+                    <input
+                      type={typeof currentSetData?.reps === 'number' ? 'number' : 'text'}
+                      value={currentSetData ? String(currentSetData.reps) : ''}
+                      onChange={(e) => updateSet(activeExercise, activeSet, 'reps', e.target.value)}
+                      className="text-display-lg text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none text-center"
+                    />
+                  )}
                 </div>
               </div>
 
-              {/* Sets table */}
-              <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-[1fr_2fr_2fr_1fr] px-4 text-label-sm text-on-surface-variant uppercase tracking-tighter">
-                  <span>Set</span>
-                  <span className="text-center">{currentEx.isTimeBased ? 'Duration' : 'LBS'}</span>
-                  <span className="text-center">Reps</span>
-                  <span className="text-right">Done</span>
+              {/* RPE per set */}
+              <div>
+                <p className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-3">Rate This Set</p>
+                <div className="flex gap-2">
+                  {RPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setSetRpe(activeExercise, activeSet, opt.value)}
+                      className={`flex-1 py-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all active:scale-95 ${
+                        currentSetData?.rpe === opt.value
+                          ? 'border-primary bg-primary-fixed'
+                          : 'border-outline-variant bg-surface hover:bg-surface-container-high'
+                      }`}
+                    >
+                      <span className="text-xl">{opt.emoji}</span>
+                      <span className={`text-[10px] font-semibold tracking-wide ${currentSetData?.rpe === opt.value ? 'text-primary' : 'text-on-surface-variant'}`}>
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-
-                {currentLog.sets.map((set, si) => (
-                  <div
-                    key={si}
-                    className={`grid grid-cols-[1fr_2fr_2fr_1fr] items-center px-4 py-4 rounded-xl border transition-all ${
-                      set.completed
-                        ? 'bg-surface-container-low border-transparent'
-                        : 'bg-white border-2 border-primary shadow-sm'
-                    }`}
-                  >
-                    <span className={`text-label-md ${set.completed ? 'text-on-surface-variant' : 'text-primary font-bold'}`}>
-                      {si + 1}
-                    </span>
-
-                    {currentEx.isBodyweight ? (
-                      <div className="text-center text-body-md text-on-surface-variant">BW</div>
-                    ) : currentEx.isTimeBased ? (
-                      <input
-                        type="text"
-                        value={String(set.reps)}
-                        onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
-                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
-                      />
-                    ) : (
-                      <input
-                        type="number"
-                        value={set.weight ?? ''}
-                        placeholder="—"
-                        onChange={(e) => updateSet(activeExercise, si, 'weight', e.target.value)}
-                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
-                      />
-                    )}
-
-                    {currentEx.isTimeBased ? (
-                      <div className="text-center text-body-md text-on-surface-variant">—</div>
-                    ) : (
-                      <input
-                        type={typeof set.reps === 'number' ? 'number' : 'text'}
-                        value={String(set.reps)}
-                        onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
-                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
-                      />
-                    )}
-
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => toggleSet(activeExercise, si)}
-                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all active:scale-90 ${
-                          set.completed
-                            ? 'border-primary bg-transparent'
-                            : 'border-outline-variant'
-                        }`}
-                      >
-                        {set.completed ? (
-                          <span className="material-symbols-outlined text-[20px] text-primary icon-filled">check_circle</span>
-                        ) : (
-                          <span className="material-symbols-outlined text-[20px] text-outline-variant">check</span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
-            </section>
+
+              {/* Log Set button */}
+              <button
+                onClick={() => logSet(activeExercise, activeSet)}
+                disabled={currentSetData?.completed}
+                className="w-full bg-primary text-on-primary py-5 rounded-xl text-label-md active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-40"
+              >
+                {currentSetData?.completed
+                  ? 'Set Logged ✓'
+                  : activeSet < totalSets - 1
+                  ? `Log Set ${activeSet + 1} → Set ${activeSet + 2}`
+                  : `Log Final Set`}
+              </button>
+
+              {completedForEx > 0 && (
+                <p className="text-center text-label-sm text-on-surface-variant">
+                  {completedForEx}/{totalSets} sets logged for this exercise
+                </p>
+              )}
+            </>
           )}
-
         </main>
 
         {/* Sticky footer */}
-        <div className="fixed bottom-0 left-0 w-full z-50">
-          <div className="bg-surface/90 backdrop-blur-lg px-[20px] py-4 flex gap-[16px] border-t border-surface-container-highest">
-            {activeExercise > 0 && (
-              <button
-                onClick={() => setActiveExercise((p) => p - 1)}
-                className="px-6 py-4 rounded-xl border border-outline-variant text-on-surface-variant text-label-md active:scale-95 transition-transform"
-              >
-                ← Back
-              </button>
-            )}
-            {activeExercise < day.exercises.length - 1 ? (
-              <button
-                onClick={() => setActiveExercise((p) => p + 1)}
-                className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-              >
-                Next Exercise
-                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setPhase('complete')}
-                className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-              >
-                {allDone ? 'Complete Workout' : 'Finish Up'}
-                <span className="material-symbols-outlined text-[18px]">
-                  {allDone ? 'check' : 'arrow_forward'}
-                </span>
-              </button>
-            )}
-          </div>
+        <div className="fixed bottom-0 left-0 w-full z-50 bg-surface/90 backdrop-blur-lg px-[20px] py-4 flex gap-4 border-t border-surface-container-highest">
+          {activeExercise > 0 && (
+            <button
+              onClick={() => goToExercise(activeExercise - 1)}
+              className="px-6 py-4 rounded-xl border border-outline-variant text-on-surface-variant text-label-md active:scale-95 transition-transform"
+            >
+              ← Back
+            </button>
+          )}
+          {activeExercise < day.exercises.length - 1 ? (
+            <button
+              onClick={tryNextExercise}
+              className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+            >
+              Next Exercise
+              <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setPhase('complete')}
+              className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+            >
+              {allDone ? 'Complete Workout' : 'Finish Up'}
+              <span className="material-symbols-outlined text-[18px]">{allDone ? 'check' : 'arrow_forward'}</span>
+            </button>
+          )}
         </div>
+
+        {/* Are you sure modal */}
+        {confirmNext && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-end">
+            <div className="bg-surface w-full rounded-t-[32px] px-[20px] pt-6 pb-10">
+              <div className="w-10 h-1 bg-outline-variant rounded-full mx-auto mb-6" />
+              <h3 className="text-headline-md text-on-surface mb-2">Not all sets done</h3>
+              <p className="text-body-md text-on-surface-variant mb-8">
+                You have {totalSets - completedForEx} set{totalSets - completedForEx !== 1 ? 's' : ''} remaining for {currentEx.name}. Move on anyway?
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => goToExercise(activeExercise + 1)}
+                  className="w-full py-4 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform"
+                >
+                  Move On
+                </button>
+                <button
+                  onClick={() => setConfirmNext(false)}
+                  className="w-full py-4 text-on-surface-variant text-label-md hover:bg-surface-container rounded-xl transition-colors"
+                >
+                  Keep Going
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

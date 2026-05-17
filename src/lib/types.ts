@@ -18,6 +18,7 @@ export interface SetLog {
   weight: number | null;
   reps: number | string;
   completed: boolean;
+  rpe?: RPELevel;
 }
 
 export interface ExerciseLog {

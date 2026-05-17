@@ -81,6 +81,7 @@ export async function saveSession(session: WorkoutSession): Promise<void> {
       set_number: i + 1,
       weight_lbs: typeof set.weight === 'number' ? set.weight : null,
       reps: typeof set.reps === 'number' ? set.reps : null,
+      rpe: set.rpe ?? null,
       exercise_type: 'strength',
     }))
   );
