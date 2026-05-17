@@ -1,54 +1,52 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { WORKOUT_DAYS } from '@/lib/workout-data';
 import { getLastSessionForDay, saveSession } from '@/lib/storage';
 import { ExerciseLog, RPELevel, SetLog, WorkoutSession } from '@/lib/types';
+import { BottomNav } from '@/components/BottomNav';
 
 type Phase = 'setup' | 'active' | 'complete';
 
-const RPE_OPTIONS: { value: RPELevel; label: string; sublabel: string; color: string; bg: string }[] = [
-  { value: 'warmup', label: 'Easy / Warm-Up', sublabel: 'Barely any effort', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-  { value: 'rpe1-5', label: 'RPE 1–5', sublabel: 'Light, could go all day', color: '#84cc16', bg: 'rgba(132,204,22,0.12)' },
-  { value: 'rpe6-7', label: 'RPE 6–7', sublabel: 'Moderate, breathing harder', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  { value: 'rpe8-9', label: 'RPE 8–9', sublabel: 'Hard, a couple reps left', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-  { value: 'rpe10', label: 'RPE 10', sublabel: 'Max effort, nothing left', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+const RPE_OPTIONS: { value: RPELevel; emoji: string; label: string; sublabel: string }[] = [
+  { value: 'warmup',  emoji: '😊', label: 'Easy',     sublabel: 'Barely any effort' },
+  { value: 'rpe1-5',  emoji: '🙂', label: 'Light',    sublabel: 'Could go all day' },
+  { value: 'rpe6-7',  emoji: '😐', label: 'Moderate', sublabel: 'Breathing harder' },
+  { value: 'rpe8-9',  emoji: '😥', label: 'Hard',     sublabel: 'A couple reps left' },
+  { value: 'rpe10',   emoji: '🥵', label: 'Max',      sublabel: 'Nothing left' },
 ];
 
-function buildInitialLogs(
-  dayId: number,
-  pct: number,
-  lastSession: WorkoutSession | null
-): ExerciseLog[] {
+function buildInitialLogs(dayId: number, pct: number, last: WorkoutSession | null): ExerciseLog[] {
   const day = WORKOUT_DAYS.find((d) => d.id === dayId)!;
-
   return day.exercises.map((ex) => {
-    const lastExercise = lastSession?.exercises.find((e) => e.exerciseName === ex.name);
-
+    const lastEx = last?.exercises.find((e) => e.exerciseName === ex.name);
     const sets: SetLog[] = Array.from({ length: ex.sets }, (_, i) => {
-      const lastSet = lastExercise?.sets[i];
-      let suggestedWeight: number | null = null;
-
-      if (ex.isBodyweight) {
-        suggestedWeight = null;
-      } else if (lastSet?.weight != null) {
-        suggestedWeight = Math.round((lastSet.weight * (1 + pct / 100)) * 4) / 4;
-      } else if (ex.defaultWeight != null) {
-        suggestedWeight = ex.defaultWeight;
+      const lastSet = lastEx?.sets[i];
+      let weight: number | null = null;
+      if (!ex.isBodyweight) {
+        if (lastSet?.weight != null) weight = Math.round(lastSet.weight * (1 + pct / 100) * 4) / 4;
+        else if (ex.defaultWeight != null) weight = ex.defaultWeight;
       }
-
-      const suggestedReps = lastSet?.reps ?? ex.reps;
-
-      return {
-        weight: suggestedWeight,
-        reps: suggestedReps,
-        completed: false,
-      };
+      return { weight, reps: lastSet?.reps ?? ex.reps, completed: false };
     });
-
     return { exerciseName: ex.name, sets };
   });
+}
+
+function formatElapsed(seconds: number) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = (seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function calcVolume(logs: ExerciseLog[]) {
+  return logs.flatMap((ex) =>
+    ex.sets
+      .filter((s) => s.completed && s.weight != null && typeof s.reps === 'number')
+      .map((s) => (s.weight ?? 0) * (s.reps as number))
+  ).reduce((a, b) => a + b, 0);
 }
 
 export default function SessionPage({ params }: { params: Promise<{ day: string }> }) {
@@ -64,17 +62,31 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   const [lastSession, setLastSession] = useState<WorkoutSession | null>(null);
   const [activeExercise, setActiveExercise] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    if (day) {
-      getLastSessionForDay(dayId).then(setLastSession);
-    }
+    if (day) getLastSessionForDay(dayId).then(setLastSession);
   }, [dayId, day]);
+
+  useEffect(() => {
+    if (phase === 'active') {
+      startTimeRef.current = Date.now() - elapsed * 1000;
+      timerRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   if (!day) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#080808' }}>
-        <p className="text-white">Day not found.</p>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-on-surface">Day not found.</p>
       </div>
     );
   }
@@ -82,537 +94,479 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   const completedSets = logs.flatMap((l) => l.sets).filter((s) => s.completed).length;
   const totalSets = logs.flatMap((l) => l.sets).length;
   const progress = totalSets > 0 ? completedSets / totalSets : 0;
+  const allDone = logs.length > 0 && logs.every((ex) => ex.sets.every((s) => s.completed));
 
   function startWorkout() {
-    const initial = buildInitialLogs(dayId, pct, lastSession);
-    setLogs(initial);
+    setLogs(buildInitialLogs(dayId, pct, lastSession));
     setActiveExercise(0);
+    setElapsed(0);
     setPhase('active');
   }
 
-  function updateSet(exIdx: number, setIdx: number, field: 'weight' | 'reps', value: string) {
-    setLogs((prev) => {
-      const next = prev.map((ex, ei) => {
-        if (ei !== exIdx) return ex;
-        return {
-          ...ex,
-          sets: ex.sets.map((s, si) => {
-            if (si !== setIdx) return s;
-            if (field === 'weight') return { ...s, weight: value === '' ? null : parseFloat(value) };
-            return { ...s, reps: value === '' ? '' : isNaN(Number(value)) ? value : Number(value) };
-          }),
-        };
-      });
-      return next;
-    });
+  function updateSet(exIdx: number, si: number, field: 'weight' | 'reps', value: string) {
+    setLogs((prev) => prev.map((ex, ei) => ei !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, i) => i !== si ? s : field === 'weight'
+        ? { ...s, weight: value === '' ? null : parseFloat(value) }
+        : { ...s, reps: value === '' ? '' : isNaN(Number(value)) ? value : Number(value) }
+      ),
+    }));
   }
 
-  function toggleSet(exIdx: number, setIdx: number) {
-    setLogs((prev) =>
-      prev.map((ex, ei) => {
-        if (ei !== exIdx) return ex;
-        return {
-          ...ex,
-          sets: ex.sets.map((s, si) =>
-            si === setIdx ? { ...s, completed: !s.completed } : s
-          ),
-        };
-      })
-    );
+  function toggleSet(exIdx: number, si: number) {
+    setLogs((prev) => prev.map((ex, ei) => ei !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, i) => i !== si ? s : { ...s, completed: !s.completed }),
+    }));
   }
 
   async function finishWorkout() {
     if (!rpe || saving) return;
     setSaving(true);
-    const session: WorkoutSession = {
+    await saveSession({
       dayId,
       date: new Date().toISOString().split('T')[0],
       weightIncreasePct: pct,
       exercises: logs,
       rpe,
       completed: true,
-    };
-    await saveSession(session);
+    });
     router.push('/');
   }
 
-  const allSetsComplete = logs.length > 0 && logs.every((ex) => ex.sets.every((s) => s.completed));
+  const currentEx = day.exercises[activeExercise];
+  const currentLog = logs[activeExercise];
 
-  // ── SETUP PHASE ──────────────────────────────────────────────
+  // ── SETUP ─────────────────────────────────────────────────────
   if (phase === 'setup') {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: '#080808' }}>
-        <div className="max-w-lg mx-auto px-4 py-10">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-2 text-sm mb-8 transition-colors"
-            style={{ color: '#6b7280' }}
-            onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#ffffff')}
-            onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#6b7280')}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Back
+      <div className="bg-surface text-on-surface min-h-screen pb-24">
+        <header className="bg-surface border-b border-surface-container-highest flex justify-between items-center w-full px-[20px] h-16 sticky top-0 z-50">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors">
+              <span className="material-symbols-outlined text-on-surface-variant">arrow_back</span>
+            </Link>
+            <h1 className="text-headline-md text-primary tracking-tight">Session Setup</h1>
+          </div>
+          <button className="text-on-surface-variant hover:opacity-80 transition-opacity">
+            <span className="material-symbols-outlined">settings</span>
           </button>
+        </header>
 
-          <p className="text-xs font-bold tracking-[0.2em] uppercase mb-1" style={{ color: '#f97316' }}>
-            {day.name}
-          </p>
-          <h1 className="text-3xl font-bold text-white mb-1">{day.focus}</h1>
-          {lastSession && (
-            <p className="text-sm mb-8" style={{ color: '#6b7280' }}>
-              Last session:{' '}
-              {new Date(lastSession.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })}
+        <main className="pt-6 px-[20px] max-w-[640px] mx-auto">
+          <section className="mb-[48px]">
+            <span className="text-label-sm text-on-surface-variant uppercase tracking-widest">{day.name}</span>
+            <h2 className="text-headline-lg-mobile text-on-surface mt-1 mb-2">How are you feeling?</h2>
+            <p className="text-body-md text-on-surface-variant">
+              Adjust your intensity for today&apos;s session based on your recovery.
             </p>
-          )}
-          {!lastSession && <div className="mb-8" />}
+          </section>
 
-          {/* Weight increase slider */}
-          <div
-            className="rounded-2xl p-6 mb-4"
-            style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f' }}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm font-medium text-white">Weight Increase</p>
-              <div
-                className="text-2xl font-bold tabular-nums"
-                style={{ color: '#f97316' }}
-              >
-                +{pct}%
+          {/* Slider */}
+          <section className="mb-[48px] bg-surface-container-low rounded-[24px] p-8 border border-surface-container-highest">
+            <div className="flex flex-col items-center mb-8">
+              <span className="text-display-lg text-primary mb-2">+{pct}%</span>
+              <span className="bg-primary text-on-primary px-4 py-1 rounded-full text-label-sm uppercase tracking-wider">
+                {pct === 0 ? 'Recovery' : pct <= 5 ? 'Conservative' : pct <= 10 ? 'Optimal Growth' : pct <= 15 ? 'Aggressive' : 'Max Effort'}
+              </span>
+            </div>
+            <div className="relative px-2">
+              <input
+                type="range"
+                min={0} max={20} step={1}
+                value={pct}
+                onChange={(e) => setPct(parseInt(e.target.value))}
+                className="range-primary w-full"
+              />
+              <div className="flex justify-between mt-4">
+                <span className="text-label-sm text-on-surface-variant">Recovery (0%)</span>
+                <span className="text-label-sm text-on-surface-variant">Max Effort (20%)</span>
               </div>
             </div>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              step={1}
-              value={pct}
-              onChange={(e) => setPct(parseInt(e.target.value))}
-              className="w-full"
-            />
-            <div className="flex justify-between mt-2 text-xs" style={{ color: '#4b5563' }}>
-              <span>0%</span>
-              <span>10%</span>
-              <span>20%</span>
-            </div>
-            {!lastSession && (
-              <p className="mt-3 text-xs" style={{ color: '#6b7280' }}>
-                No previous session — using program defaults where available.
-              </p>
-            )}
-          </div>
+          </section>
 
           {/* Exercise preview */}
-          <div
-            className="rounded-2xl p-5 mb-6"
-            style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f' }}
-          >
-            <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: '#6b7280' }}>
-              Today&apos;s Exercises
-            </p>
-            <div className="flex flex-col gap-3">
-              {day.exercises.map((ex, i) => {
+          <section className="mb-[48px]">
+            <div className="flex justify-between items-end mb-[16px]">
+              <h3 className="text-headline-md text-on-surface">Today&apos;s Preview</h3>
+              <span className="text-label-md text-primary">{day.exercises.length} Exercises</span>
+            </div>
+            <div className="space-y-4">
+              {day.exercises.map((ex) => {
                 const lastEx = lastSession?.exercises.find((e) => e.exerciseName === ex.name);
                 const lastWeight = lastEx?.sets[0]?.weight;
-                const suggestedWeight =
-                  ex.isBodyweight
-                    ? null
-                    : lastWeight != null
-                    ? Math.round(lastWeight * (1 + pct / 100) * 4) / 4
-                    : ex.defaultWeight;
+                const suggested = ex.isBodyweight ? null
+                  : lastWeight != null ? Math.round(lastWeight * (1 + pct / 100) * 4) / 4
+                  : ex.defaultWeight;
+                const diff = lastWeight != null && suggested != null ? suggested - lastWeight : null;
 
                 return (
-                  <div key={i} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-white">{ex.name}</p>
-                      <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
-                        {ex.sets} sets × {ex.reps}{typeof ex.reps === 'string' ? '' : ' reps'}
-                      </p>
+                  <div
+                    key={ex.name}
+                    className="flex items-center justify-between p-[16px] bg-surface-container-lowest rounded-[24px] border border-surface-container-highest active:scale-[0.98] transition-transform"
+                    style={{ boxShadow: '0px 10px 30px rgba(99,102,241,0.05)' }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-primary-fixed flex items-center justify-center">
+                        <span className="material-symbols-outlined text-primary">fitness_center</span>
+                      </div>
+                      <div>
+                        <p className="text-label-md text-on-surface">{ex.name}</p>
+                        <p className="text-label-sm text-on-surface-variant">
+                          {ex.sets} Sets · {ex.reps}{typeof ex.reps === 'number' ? ' Reps' : ''}
+                          {ex.isBodyweight ? ' · Bodyweight' : ''}
+                        </p>
+                      </div>
                     </div>
                     <div className="text-right">
                       {ex.isBodyweight ? (
-                        <span className="text-xs px-2 py-1 rounded-lg" style={{ backgroundColor: '#1f1f1f', color: '#9ca3af' }}>
-                          Bodyweight
-                        </span>
-                      ) : suggestedWeight != null ? (
-                        <span className="text-sm font-semibold" style={{ color: '#f97316' }}>
-                          {suggestedWeight}lbs
-                        </span>
+                        <p className="text-body-lg font-bold text-on-surface">BW</p>
+                      ) : suggested != null ? (
+                        <>
+                          <p className="text-body-lg font-bold text-on-surface">{suggested} lbs</p>
+                          {diff != null && diff > 0 && (
+                            <p className="text-label-sm text-primary">+{diff} lbs vs last</p>
+                          )}
+                          {!lastWeight && <p className="text-label-sm text-on-surface-variant">Default</p>}
+                        </>
                       ) : (
-                        <span className="text-xs" style={{ color: '#4b5563' }}>—</span>
+                        <p className="text-label-sm text-on-surface-variant">—</p>
                       )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          <button
-            onClick={startWorkout}
-            className="w-full py-4 rounded-2xl text-white font-bold text-base transition-all active:scale-[0.98]"
-            style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
-          >
-            Start Workout
-          </button>
-        </div>
+          <section>
+            <button
+              onClick={startWorkout}
+              className="w-full bg-primary text-on-primary py-5 rounded-xl text-headline-md hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/20"
+            >
+              Start Workout
+            </button>
+            <p className="text-center mt-4 text-label-sm text-on-surface-variant">
+              {lastSession
+                ? `Last session: ${new Date(lastSession.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })}`
+                : 'First session — weights from your PT program'}
+            </p>
+          </section>
+        </main>
+
+        <BottomNav />
       </div>
     );
   }
 
-  // ── ACTIVE PHASE ─────────────────────────────────────────────
+  // ── ACTIVE ────────────────────────────────────────────────────
   if (phase === 'active') {
-    const currentEx = day.exercises[activeExercise];
-    const currentLog = logs[activeExercise];
-
     return (
-      <div className="min-h-screen pb-32" style={{ backgroundColor: '#080808' }}>
+      <div className="bg-background text-on-background min-h-screen">
         {/* Top bar */}
-        <div
-          className="sticky top-0 z-10 px-4 pt-10 pb-4"
-          style={{ backgroundColor: '#080808', borderBottom: '1px solid #111111' }}
-        >
-          <div className="max-w-lg mx-auto">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-xs font-bold tracking-widest uppercase" style={{ color: '#f97316' }}>
-                  {day.name} · {day.focus}
-                </p>
-                <p className="text-sm mt-0.5" style={{ color: '#6b7280' }}>
-                  {completedSets} / {totalSets} sets done
-                </p>
-              </div>
-              <button
-                onClick={() => setPhase('complete')}
-                className="text-sm font-medium px-4 py-2 rounded-xl transition-all"
-                style={{ backgroundColor: '#1f1f1f', color: '#9ca3af' }}
-              >
-                Finish
-              </button>
+        <header className="bg-surface border-b border-surface-container-highest flex flex-col w-full sticky top-0 z-50">
+          <div className="flex justify-between items-center w-full px-[20px] h-16">
+            <div className="flex items-center gap-3">
+              <h1 className="text-headline-md text-primary tracking-tight">Pulse</h1>
             </div>
-            {/* Progress bar */}
-            <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: '#1f1f1f' }}>
+            <button
+              onClick={() => setPhase('complete')}
+              className="text-label-md text-on-surface-variant border border-outline-variant px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors"
+            >
+              Finish
+            </button>
+          </div>
+          {/* Progress */}
+          <div className="px-[20px] pb-4">
+            <div className="flex justify-between items-end mb-2">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-widest">Workout Progress</span>
+              <span className="text-label-md text-primary">{activeExercise + 1} of {day.exercises.length} Exercises</span>
+            </div>
+            <div className="h-2 w-full bg-primary-fixed rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${progress * 100}%`, backgroundColor: '#f97316' }}
+                className="h-full bg-primary transition-all duration-500"
+                style={{ width: `${progress * 100}%` }}
               />
             </div>
           </div>
-        </div>
+        </header>
 
-        <div className="max-w-lg mx-auto px-4 pt-6">
+        <main className="max-w-[640px] mx-auto px-[20px] py-[24px] flex flex-col gap-[24px] pb-40">
           {/* Exercise tabs */}
-          <div className="flex gap-2 mb-6 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <nav className="flex gap-[16px] overflow-x-auto scrollbar-hide py-1 -mx-[20px] px-[20px]">
             {day.exercises.map((ex, i) => {
               const exLog = logs[i];
-              const allDone = exLog?.sets.every((s) => s.completed);
-              const someDone = exLog?.sets.some((s) => s.completed);
+              const done = exLog?.sets.every((s) => s.completed);
               return (
                 <button
                   key={i}
                   onClick={() => setActiveExercise(i)}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
-                  style={{
-                    backgroundColor:
-                      i === activeExercise
-                        ? '#f97316'
-                        : allDone
-                        ? 'rgba(34,197,94,0.15)'
-                        : someDone
-                        ? 'rgba(249,115,22,0.12)'
-                        : '#1a1a1a',
-                    color:
-                      i === activeExercise
-                        ? '#ffffff'
-                        : allDone
-                        ? '#22c55e'
-                        : someDone
-                        ? '#f97316'
-                        : '#6b7280',
-                    border: i === activeExercise ? 'none' : '1px solid #2a2a2a',
-                  }}
+                  className={`px-5 py-2 rounded-full border text-label-md whitespace-nowrap active:scale-95 transition-all ${
+                    i === activeExercise
+                      ? 'border-primary bg-primary text-on-primary'
+                      : done
+                      ? 'border-primary/40 bg-primary-fixed text-primary'
+                      : 'border-outline-variant bg-surface text-on-surface-variant'
+                  }`}
                 >
-                  {i + 1}. {ex.name.split(' ').slice(0, 2).join(' ')}
+                  {ex.name.split(' ').slice(0, 2).join(' ')}
                 </button>
               );
             })}
-          </div>
+          </nav>
 
           {/* Exercise card */}
-          <div
-            className="rounded-2xl overflow-hidden mb-4"
-            style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f' }}
-          >
-            {/* Exercise header */}
-            <div className="px-5 pt-5 pb-4" style={{ borderBottom: '1px solid #1a1a1a' }}>
-              <div className="flex items-start justify-between">
+          {currentLog && (
+            <section
+              className="bg-surface-container-lowest rounded-[24px] p-6 border border-surface-container"
+              style={{ boxShadow: '0px 10px 30px rgba(99,102,241,0.05)' }}
+            >
+              <div className="flex items-center gap-3 mb-[24px]">
+                <div className="w-12 h-12 bg-primary-fixed rounded-xl flex items-center justify-center text-primary">
+                  <span className="material-symbols-outlined text-[28px]">fitness_center</span>
+                </div>
                 <div>
-                  <p className="text-xs font-bold tracking-widest uppercase mb-1" style={{ color: '#f97316' }}>
-                    Exercise {activeExercise + 1} of {day.exercises.length}
-                  </p>
-                  <h2 className="text-xl font-bold text-white leading-tight">{currentEx.name}</h2>
-                  <p className="text-sm mt-1" style={{ color: '#6b7280' }}>
-                    {currentEx.sets} sets × {currentEx.reps}
-                    {typeof currentEx.reps === 'number' ? ' reps' : ''}
-                    {currentEx.isTimeBased ? ' hold' : ''}
-                    {currentEx.isBodyweight ? ' · Bodyweight' : currentEx.defaultWeight ? ` · ~${currentEx.defaultWeight}lbs` : ''}
+                  <h2 className="text-headline-lg text-on-surface">{currentEx.name}</h2>
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-wider">
+                    {currentEx.sets} Sets · {currentEx.reps}{typeof currentEx.reps === 'number' ? ' Reps' : ''}
+                    {currentEx.isBodyweight ? ' · Bodyweight' : ''}
+                    {currentEx.isTimeBased ? ' Hold' : ''}
                   </p>
                 </div>
               </div>
-            </div>
 
-            {/* Sets */}
-            <div className="px-5 py-4 flex flex-col gap-3">
-              {/* Column headers */}
-              <div className="grid gap-3" style={{ gridTemplateColumns: '28px 1fr 1fr 40px' }}>
-                <div />
-                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: '#4b5563' }}>
-                  {currentEx.isTimeBased ? 'Duration' : 'Weight (lbs)'}
-                </p>
-                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: '#4b5563' }}>
-                  {currentEx.isTimeBased ? 'Side' : 'Reps'}
-                </p>
-                <div />
-              </div>
+              {/* Sets table */}
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-[1fr_2fr_2fr_1fr] px-4 text-label-sm text-on-surface-variant uppercase tracking-tighter">
+                  <span>Set</span>
+                  <span className="text-center">{currentEx.isTimeBased ? 'Duration' : 'LBS'}</span>
+                  <span className="text-center">Reps</span>
+                  <span className="text-right">Done</span>
+                </div>
 
-              {currentLog.sets.map((set, si) => (
-                <div
-                  key={si}
-                  className="grid gap-3 items-center transition-all"
-                  style={{ gridTemplateColumns: '28px 1fr 1fr 40px' }}
-                >
-                  {/* Set number */}
+                {currentLog.sets.map((set, si) => (
                   <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                    style={{
-                      backgroundColor: set.completed ? 'rgba(34,197,94,0.15)' : '#1a1a1a',
-                      color: set.completed ? '#22c55e' : '#6b7280',
-                    }}
+                    key={si}
+                    className={`grid grid-cols-[1fr_2fr_2fr_1fr] items-center px-4 py-4 rounded-xl border transition-all ${
+                      set.completed
+                        ? 'bg-surface-container-low border-transparent'
+                        : 'bg-white border-2 border-primary shadow-sm'
+                    }`}
                   >
-                    {si + 1}
-                  </div>
+                    <span className={`text-label-md ${set.completed ? 'text-on-surface-variant' : 'text-primary font-bold'}`}>
+                      {si + 1}
+                    </span>
 
-                  {/* Weight input */}
-                  {currentEx.isBodyweight ? (
-                    <div
-                      className="h-11 rounded-xl flex items-center justify-center text-sm"
-                      style={{ backgroundColor: '#1a1a1a', color: '#4b5563' }}
-                    >
-                      BW
-                    </div>
-                  ) : currentEx.isTimeBased ? (
-                    <input
-                      type="text"
-                      value={String(set.reps)}
-                      onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
-                      className="h-11 rounded-xl text-center text-sm font-semibold text-white outline-none transition-all"
-                      style={{
-                        backgroundColor: set.completed ? 'rgba(34,197,94,0.1)' : '#1a1a1a',
-                        border: `1px solid ${set.completed ? 'rgba(34,197,94,0.3)' : '#2a2a2a'}`,
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type="number"
-                      value={set.weight ?? ''}
-                      onChange={(e) => updateSet(activeExercise, si, 'weight', e.target.value)}
-                      placeholder="—"
-                      className="h-11 rounded-xl text-center text-sm font-semibold text-white outline-none transition-all"
-                      style={{
-                        backgroundColor: set.completed ? 'rgba(34,197,94,0.1)' : '#1a1a1a',
-                        border: `1px solid ${set.completed ? 'rgba(34,197,94,0.3)' : '#2a2a2a'}`,
-                      }}
-                    />
-                  )}
-
-                  {/* Reps input */}
-                  {currentEx.isTimeBased ? (
-                    <div
-                      className="h-11 rounded-xl flex items-center justify-center text-sm"
-                      style={{ backgroundColor: '#1a1a1a', color: '#4b5563' }}
-                    >
-                      —
-                    </div>
-                  ) : (
-                    <input
-                      type={typeof set.reps === 'number' ? 'number' : 'text'}
-                      value={String(set.reps)}
-                      onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
-                      className="h-11 rounded-xl text-center text-sm font-semibold text-white outline-none transition-all"
-                      style={{
-                        backgroundColor: set.completed ? 'rgba(34,197,94,0.1)' : '#1a1a1a',
-                        border: `1px solid ${set.completed ? 'rgba(34,197,94,0.3)' : '#2a2a2a'}`,
-                      }}
-                    />
-                  )}
-
-                  {/* Complete toggle */}
-                  <button
-                    onClick={() => toggleSet(activeExercise, si)}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90"
-                    style={{
-                      backgroundColor: set.completed ? 'rgba(34,197,94,0.15)' : '#1a1a1a',
-                      border: `1px solid ${set.completed ? 'rgba(34,197,94,0.4)' : '#2a2a2a'}`,
-                    }}
-                  >
-                    {set.completed ? (
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M3 8l3.5 3.5L13 4.5" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+                    {currentEx.isBodyweight ? (
+                      <div className="text-center text-body-md text-on-surface-variant">BW</div>
+                    ) : currentEx.isTimeBased ? (
+                      <input
+                        type="text"
+                        value={String(set.reps)}
+                        onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
+                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
+                      />
                     ) : (
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#3a3a3a' }} />
+                      <input
+                        type="number"
+                        value={set.weight ?? ''}
+                        placeholder="—"
+                        onChange={(e) => updateSet(activeExercise, si, 'weight', e.target.value)}
+                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
+                      />
                     )}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Nav buttons */}
-          <div className="flex gap-3">
+                    {currentEx.isTimeBased ? (
+                      <div className="text-center text-body-md text-on-surface-variant">—</div>
+                    ) : (
+                      <input
+                        type={typeof set.reps === 'number' ? 'number' : 'text'}
+                        value={String(set.reps)}
+                        onChange={(e) => updateSet(activeExercise, si, 'reps', e.target.value)}
+                        className="text-center text-headline-md text-on-surface bg-transparent border-none p-0 focus:ring-0 w-full outline-none"
+                      />
+                    )}
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => toggleSet(activeExercise, si)}
+                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all active:scale-90 ${
+                          set.completed
+                            ? 'border-primary bg-transparent'
+                            : 'border-outline-variant'
+                        }`}
+                      >
+                        {set.completed ? (
+                          <span className="material-symbols-outlined text-[20px] text-primary icon-filled">check_circle</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-[20px] text-outline-variant">check</span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Volume trend (decorative) */}
+          <section className="bg-surface-container-low rounded-[24px] p-6 border border-surface-container">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-label-md text-on-surface uppercase tracking-wider">Volume Trend</h3>
+              <span className="text-primary font-bold text-label-sm">
+                {calcVolume(logs).toLocaleString()} lbs total
+              </span>
+            </div>
+            <div className="h-20 w-full">
+              <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style={{ stopColor: 'rgba(70,72,212,0.2)' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgba(70,72,212,0)' }} />
+                  </linearGradient>
+                </defs>
+                <path d="M0,35 Q20,30 40,32 T70,10 T100,5 L100,40 L0,40 Z" fill="url(#chartGradient)" />
+                <path d="M0,35 Q20,30 40,32 T70,10 T100,5" fill="none" stroke="#4648d4" strokeWidth="1.5" />
+              </svg>
+            </div>
+          </section>
+        </main>
+
+        {/* Sticky footer */}
+        <div className="fixed bottom-0 left-0 w-full z-50">
+          <div className="bg-surface/90 backdrop-blur-lg px-[20px] py-4 flex gap-[16px] border-t border-surface-container-highest">
             {activeExercise > 0 && (
               <button
                 onClick={() => setActiveExercise((p) => p - 1)}
-                className="flex-1 py-3.5 rounded-xl text-sm font-semibold transition-all"
-                style={{ backgroundColor: '#1a1a1a', color: '#9ca3af', border: '1px solid #2a2a2a' }}
+                className="px-6 py-4 rounded-xl border border-outline-variant text-on-surface-variant text-label-md active:scale-95 transition-transform"
               >
-                ← Previous
+                ← Back
               </button>
             )}
             {activeExercise < day.exercises.length - 1 ? (
               <button
                 onClick={() => setActiveExercise((p) => p + 1)}
-                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white transition-all"
-                style={{ backgroundColor: '#f97316' }}
+                className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
               >
-                Next →
+                Next Exercise
+                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
               </button>
             ) : (
               <button
                 onClick={() => setPhase('complete')}
-                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white transition-all"
-                style={{
-                  background: allSetsComplete
-                    ? 'linear-gradient(135deg, #22c55e, #16a34a)'
-                    : 'linear-gradient(135deg, #f97316, #ea580c)',
-                }}
+                className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
               >
-                {allSetsComplete ? 'Complete Workout ✓' : 'Finish Up →'}
+                {allDone ? 'Complete Workout' : 'Finish Up'}
+                <span className="material-symbols-outlined text-[18px]">
+                  {allDone ? 'check' : 'arrow_forward'}
+                </span>
               </button>
             )}
           </div>
+          <BottomNav />
         </div>
       </div>
     );
   }
 
-  // ── COMPLETE PHASE ────────────────────────────────────────────
+  // ── COMPLETE ──────────────────────────────────────────────────
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#080808' }}>
-      <div className="max-w-lg mx-auto px-4 py-10">
-        {/* Back to workout */}
+    <div className="bg-background text-on-background min-h-screen pb-32">
+      <header className="bg-surface border-b border-surface-container-highest fixed top-0 left-0 w-full z-50 h-16 flex justify-between items-center px-[20px]">
+        <span className="text-headline-md text-primary tracking-tight">Pulse</span>
         <button
           onClick={() => setPhase('active')}
-          className="flex items-center gap-2 text-sm mb-8"
-          style={{ color: '#6b7280' }}
+          className="text-on-surface-variant text-label-md flex items-center gap-1 hover:opacity-80"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Back to workout
+          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+          Back
         </button>
+      </header>
 
-        {/* Header */}
-        <div className="text-center mb-10">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
-          >
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M5 14l6 6L23 8" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+      <main className="pt-24 pb-32 px-[20px] max-w-[640px] mx-auto">
+        {/* Hero */}
+        <section className="text-center mb-[48px]">
+          <span className="text-label-md text-on-surface-variant tracking-wider block mb-2">Session Complete</span>
+          <h1 className="text-display-lg text-primary mb-[24px]">Great Job!</h1>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-[16px] mb-[24px]">
+            <div className="bg-surface-container-low border border-outline-variant p-[24px] rounded-[24px] flex flex-col items-center justify-center text-center">
+              <span className="material-symbols-outlined text-primary mb-2">timer</span>
+              <span className="text-label-sm text-on-surface-variant mb-1 uppercase tracking-widest">Duration</span>
+              <span className="text-headline-md text-on-surface">{formatElapsed(elapsed)}</span>
+            </div>
+            <div className="bg-surface-container-low border border-outline-variant p-[24px] rounded-[24px] flex flex-col items-center justify-center text-center">
+              <span className="material-symbols-outlined text-primary mb-2">weight</span>
+              <span className="text-label-sm text-on-surface-variant mb-1 uppercase tracking-widest">Volume</span>
+              <span className="text-headline-md text-on-surface">{calcVolume(logs).toLocaleString()} lbs</span>
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-1">Nicely Done</h1>
-          <p className="text-sm" style={{ color: '#6b7280' }}>
-            {completedSets} of {totalSets} sets completed
-          </p>
-        </div>
 
-        {/* Session summary */}
-        <div
-          className="rounded-2xl p-5 mb-6"
-          style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f' }}
-        >
-          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: '#6b7280' }}>
-            Summary
-          </p>
-          <div className="flex flex-col gap-2">
-            {logs.map((ex, i) => {
-              const completed = ex.sets.filter((s) => s.completed).length;
-              return (
-                <div key={i} className="flex items-center justify-between">
-                  <p className="text-sm text-white">{ex.exerciseName}</p>
-                  <p className="text-sm" style={{ color: completed === ex.sets.length ? '#22c55e' : '#f97316' }}>
-                    {completed}/{ex.sets.length} sets
-                  </p>
-                </div>
-              );
-            })}
+          {/* Sets summary */}
+          <div className="bg-surface-container-lowest rounded-[24px] p-5 border border-surface-container text-left">
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-3">Sets Completed</p>
+            <div className="flex flex-col gap-2">
+              {logs.map((ex) => {
+                const done = ex.sets.filter((s) => s.completed).length;
+                return (
+                  <div key={ex.exerciseName} className="flex items-center justify-between">
+                    <p className="text-body-md text-on-surface">{ex.exerciseName}</p>
+                    <p className={`text-label-md ${done === ex.sets.length ? 'text-primary' : 'text-on-surface-variant'}`}>
+                      {done}/{ex.sets.length} sets
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </section>
 
-        {/* RPE selector */}
-        <div
-          className="rounded-2xl p-5 mb-6"
-          style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f' }}
-        >
-          <p className="text-sm font-semibold text-white mb-1">How hard was that?</p>
-          <p className="text-xs mb-4" style={{ color: '#6b7280' }}>Rate your overall session effort</p>
-          <div className="flex flex-col gap-2">
+        {/* RPE */}
+        <section className="mb-[48px]">
+          <div className="flex items-center justify-between mb-[12px]">
+            <h3 className="text-headline-md text-on-surface">Rate Your Effort</h3>
+            <span className="material-symbols-outlined text-on-surface-variant">info</span>
+          </div>
+          <div className="flex justify-between gap-2">
             {RPE_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => setRpe(opt.value)}
-                className="flex items-center gap-3 p-3.5 rounded-xl text-left transition-all"
-                style={{
-                  backgroundColor: rpe === opt.value ? opt.bg : '#1a1a1a',
-                  border: `1px solid ${rpe === opt.value ? opt.color + '50' : '#2a2a2a'}`,
-                }}
+                className={`flex-1 py-4 px-2 rounded-xl border-2 flex flex-col items-center gap-2 transition-all active:scale-95 ${
+                  rpe === opt.value
+                    ? 'border-primary bg-primary-fixed shadow-[0px_10px_30px_rgba(99,102,241,0.15)]'
+                    : 'bg-surface border-outline-variant hover:bg-surface-container-high'
+                }`}
               >
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: opt.color }}
-                />
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: rpe === opt.value ? opt.color : '#ffffff' }}>
-                    {opt.label}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
-                    {opt.sublabel}
-                  </p>
-                </div>
-                {rpe === opt.value && (
-                  <svg className="ml-auto" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 8l3.5 3.5L13 4.5" stroke={opt.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
+                <span className="text-2xl">{opt.emoji}</span>
+                <span className={`text-label-sm ${rpe === opt.value ? 'text-primary font-bold' : 'text-on-surface-variant'}`}>
+                  {opt.label}
+                </span>
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
-        <button
-          onClick={finishWorkout}
-          disabled={!rpe || saving}
-          className="w-full py-4 rounded-2xl text-white font-bold text-base transition-all disabled:opacity-40"
-          style={{
-            background: rpe && !saving ? 'linear-gradient(135deg, #f97316, #ea580c)' : '#1a1a1a',
-          }}
-        >
-          {saving ? 'Saving…' : 'Save & Finish'}
-        </button>
-      </div>
+        {/* Actions */}
+        <div className="flex flex-col gap-4">
+          <button
+            onClick={finishWorkout}
+            disabled={!rpe || saving}
+            className="w-full bg-primary text-on-primary py-4 rounded-full text-label-md disabled:opacity-40 transition-transform active:scale-[0.98] shadow-[0px_10px_30px_rgba(99,102,241,0.2)]"
+          >
+            {saving ? 'Saving…' : 'Save & Finish'}
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="w-full bg-transparent text-on-surface-variant py-4 rounded-full text-label-md hover:bg-surface-container-highest transition-colors"
+          >
+            Discard Workout
+          </button>
+        </div>
+      </main>
+
+      <BottomNav />
     </div>
   );
 }

@@ -1,27 +1,42 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { WORKOUT_DAYS } from '@/lib/workout-data';
 import { getLastSessionForDay } from '@/lib/storage';
-import { useEffect, useState } from 'react';
 import { WorkoutSession } from '@/lib/types';
-
-const DAY_COLORS = [
-  { accent: '#f97316', dim: 'rgba(249,115,22,0.12)', label: 'text-orange-400' },
-  { accent: '#3b82f6', dim: 'rgba(59,130,246,0.12)', label: 'text-blue-400' },
-  { accent: '#a855f7', dim: 'rgba(168,85,247,0.12)', label: 'text-purple-400' },
-  { accent: '#22c55e', dim: 'rgba(34,197,94,0.12)', label: 'text-green-400' },
-];
+import { BottomNav } from '@/components/BottomNav';
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-  });
+  return new Date(dateStr).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+
+function getNextDayId(sessions: Record<number, WorkoutSession | null>): number {
+  // Find the most recently completed day, suggest the next one
+  const completed = WORKOUT_DAYS.filter((d) => sessions[d.id]?.completed);
+  if (completed.length === 0) return 1;
+  if (completed.length === WORKOUT_DAYS.length) return WORKOUT_DAYS[0].id;
+  const lastDone = completed.sort((a, b) => {
+    const aDate = sessions[a.id]?.date ?? '';
+    const bDate = sessions[b.id]?.date ?? '';
+    return bDate.localeCompare(aDate);
+  })[0];
+  const nextIdx = (WORKOUT_DAYS.findIndex((d) => d.id === lastDone.id) + 1) % WORKOUT_DAYS.length;
+  return WORKOUT_DAYS[nextIdx].id;
+}
+
+function getWeeklyCompletedCount(sessions: Record<number, WorkoutSession | null>): number {
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  return Object.values(sessions).filter((s) => {
+    if (!s?.completed) return false;
+    return new Date(s.date) >= weekAgo;
+  }).length;
 }
 
 export default function Home() {
-  const [lastSessions, setLastSessions] = useState<Record<number, WorkoutSession | null>>({});
+  const [sessions, setSessions] = useState<Record<number, WorkoutSession | null>>({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const data: Record<number, WorkoutSession | null> = {};
@@ -29,121 +44,151 @@ export default function Home() {
       WORKOUT_DAYS.map(async (day) => {
         data[day.id] = await getLastSessionForDay(day.id);
       })
-    ).then(() => setLastSessions({ ...data }));
+    ).then(() => {
+      setSessions({ ...data });
+      setLoading(false);
+    });
   }, []);
 
+  const nextDayId = loading ? -1 : getNextDayId(sessions);
+  const weeklyDone = getWeeklyCompletedCount(sessions);
+  const progressPct = (weeklyDone / WORKOUT_DAYS.length) * 100;
+
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#080808' }}>
-      <div className="max-w-lg mx-auto px-4 py-12">
-        {/* Header */}
-        <div className="mb-10">
-          <p className="text-xs font-semibold tracking-[0.2em] uppercase mb-2" style={{ color: '#f97316' }}>
-            Your Program
-          </p>
-          <h1 className="text-4xl font-bold text-white tracking-tight">
-            Let&apos;s Work
-          </h1>
-          <p className="mt-1 text-sm" style={{ color: '#6b7280' }}>
-            Pick a day and get started
-          </p>
+    <div className="bg-surface text-on-surface min-h-screen pb-32">
+      {/* TopAppBar */}
+      <header className="bg-surface sticky top-0 z-50 flex justify-between items-center w-full px-[20px] h-16 border-b border-surface-container-highest">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-container flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary">person</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-label-sm text-on-surface-variant">Hello,</span>
+            <span className="text-headline-md text-primary tracking-tight">Ryan!</span>
+          </div>
         </div>
+        <button className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-primary-fixed/30 transition-colors">
+          <span className="material-symbols-outlined text-primary">settings</span>
+        </button>
+      </header>
+
+      <main className="px-[20px] max-w-screen-xl mx-auto py-6">
+        {/* Weekly Progress */}
+        <section className="mb-[48px]">
+          <div className="bg-surface-container-low rounded-[24px] p-[24px] w-full flex items-center gap-6 border border-outline-variant/30">
+            <div
+              className="relative w-28 h-28 flex-shrink-0 flex items-center justify-center circular-progress rounded-full"
+              style={{ '--progress': `${progressPct}%` } as React.CSSProperties}
+            >
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-headline-md text-primary">{weeklyDone}/{WORKOUT_DAYS.length}</span>
+                <span className="text-label-sm text-on-surface-variant">Done</span>
+              </div>
+            </div>
+            <div className="flex-1">
+              <h2 className="text-headline-md mb-1">Weekly Progress</h2>
+              <p className="text-body-md text-on-surface-variant mb-4">
+                {weeklyDone === 0
+                  ? "Let's get your first session in!"
+                  : weeklyDone < WORKOUT_DAYS.length
+                  ? "You're making progress. Keep that momentum!"
+                  : 'Full week complete — outstanding work!'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <div className="px-3 py-1 rounded-full bg-primary text-on-primary text-label-sm">
+                  {weeklyDone === 0 ? 'Just getting started' : `${weeklyDone} session${weeklyDone > 1 ? 's' : ''} this week`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* Day Cards */}
-        <div className="flex flex-col gap-3">
-          {WORKOUT_DAYS.map((day, i) => {
-            const color = DAY_COLORS[i];
-            const last = lastSessions[day.id];
+        <section>
+          <div className="flex justify-between items-end mb-6">
+            <h3 className="text-headline-md">Your Schedule</h3>
+            <span className="text-label-md text-primary">4 Days</span>
+          </div>
 
-            return (
-              <Link key={day.id} href={`/session/${day.id}`}>
-                <div
-                  className="relative overflow-hidden rounded-2xl p-5 transition-all duration-200 active:scale-[0.98] cursor-pointer"
-                  style={{
-                    backgroundColor: '#111111',
-                    border: '1px solid #1f1f1f',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.borderColor = color.accent + '60';
-                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#161616';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.borderColor = '#1f1f1f';
-                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#111111';
-                  }}
-                >
-                  {/* Accent bar */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-[16px]">
+            {WORKOUT_DAYS.map((day) => {
+              const last = sessions[day.id];
+              const isDone = !!last?.completed;
+              const isNext = day.id === nextDayId && !loading;
+
+              return (
+                <Link key={day.id} href={`/session/${day.id}`}>
                   <div
-                    className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl"
-                    style={{ backgroundColor: color.accent }}
-                  />
-
-                  <div className="pl-3">
-                    <div className="flex items-start justify-between">
+                    className={`rounded-[24px] p-6 border transition-transform active:scale-[0.98] duration-200 cursor-pointer ${
+                      isNext
+                        ? 'bg-white border-primary shadow-[0px_10px_30px_rgba(99,102,241,0.1)]'
+                        : 'bg-surface-container-low border-outline-variant/30'
+                    }`}
+                  >
+                    {/* Card header */}
+                    <div className="flex justify-between items-start mb-4">
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className="text-xs font-bold tracking-widest uppercase"
-                            style={{ color: color.accent }}
-                          >
-                            {day.name}
-                          </span>
-                          {last && (
-                            <span
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={{ backgroundColor: color.dim, color: color.accent }}
-                            >
-                              Done {formatDate(last.date)}
-                            </span>
-                          )}
+                        <span className={`text-label-sm uppercase tracking-wider ${isNext ? 'text-primary font-bold' : 'text-on-surface-variant'}`}>
+                          {isNext ? 'Next Up' : `Day ${day.id}`}
+                        </span>
+                        <h4 className="text-headline-md mt-1">{day.focus}</h4>
+                      </div>
+                      {isDone ? (
+                        <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary">
+                          <span className="material-symbols-outlined text-[18px] icon-filled">check_circle</span>
+                          <span className="text-label-sm">Done {formatDate(last!.date)}</span>
                         </div>
-                        <h2 className="text-lg font-semibold text-white">{day.focus}</h2>
-                        <p className="mt-1 text-sm" style={{ color: '#6b7280' }}>
-                          {day.exercises.length} exercises · {day.exercises[0].sets} sets each
-                        </p>
-                      </div>
-                      <div
-                        className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: color.dim }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                          <path
-                            d="M6 3l5 5-5 5"
-                            stroke={color.accent}
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-
-                    {/* Exercise pills */}
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {day.exercises.slice(0, 3).map((ex) => (
-                        <span
-                          key={ex.name}
-                          className="text-xs px-2 py-0.5 rounded-md"
-                          style={{ backgroundColor: '#1f1f1f', color: '#9ca3af' }}
-                        >
-                          {ex.name}
-                        </span>
-                      ))}
-                      {day.exercises.length > 3 && (
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-md"
-                          style={{ backgroundColor: '#1f1f1f', color: '#6b7280' }}
-                        >
-                          +{day.exercises.length - 3} more
-                        </span>
+                      ) : isNext ? (
+                        <div className="w-10 h-10 flex items-center justify-center rounded-full bg-primary text-white">
+                          <span className="material-symbols-outlined">play_arrow</span>
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-highest text-on-surface-variant">
+                          <span className="material-symbols-outlined">fitness_center</span>
+                        </div>
                       )}
                     </div>
+
+                    {/* Exercise list */}
+                    <ul className="space-y-2 mb-6 text-on-surface-variant text-body-md">
+                      {day.exercises.slice(0, 3).map((ex) => (
+                        <li key={ex.name} className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                          {ex.name}
+                        </li>
+                      ))}
+                      {day.exercises.length > 3 && (
+                        <li className="flex items-center gap-2 text-on-surface-variant/60">
+                          <div className="w-1.5 h-1.5 rounded-full bg-outline flex-shrink-0" />
+                          +{day.exercises.length - 3} more
+                        </li>
+                      )}
+                    </ul>
+
+                    {/* CTA */}
+                    {isNext ? (
+                      <button className="w-full py-4 rounded-xl bg-primary text-on-primary text-label-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
+                        <span className="material-symbols-outlined text-[18px] icon-filled">play_arrow</span>
+                        Start Session
+                      </button>
+                    ) : isDone ? (
+                      <button className="w-full py-3 rounded-xl border border-primary text-primary text-label-md hover:bg-primary/5 transition-colors">
+                        Start Again
+                      </button>
+                    ) : (
+                      <button className="w-full py-3 rounded-xl border border-outline-variant text-on-surface-variant text-label-md hover:bg-surface-container transition-colors">
+                        Start Session
+                      </button>
+                    )}
                   </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+
+      <BottomNav />
     </div>
   );
 }
