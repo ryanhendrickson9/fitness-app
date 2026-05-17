@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { WORKOUT_DAYS } from '@/lib/workout-data';
@@ -27,7 +27,7 @@ function buildInitialLogs(dayId: number, pct: number, last: WorkoutSession | nul
       let weight: number | null = null;
       if (!ex.isBodyweight) {
         if (lastSet?.weight != null) weight = Math.round(lastSet.weight * (1 + pct / 100) * 4) / 4;
-        else if (ex.defaultWeight != null) weight = ex.defaultWeight;
+        else if (ex.defaultWeight != null) weight = Math.round(ex.defaultWeight * (1 + pct / 100) * 4) / 4;
       }
       return { weight, reps: lastSet?.reps ?? ex.reps, completed: false };
     });
@@ -35,19 +35,6 @@ function buildInitialLogs(dayId: number, pct: number, last: WorkoutSession | nul
   });
 }
 
-function formatElapsed(seconds: number) {
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}
-
-function calcVolume(logs: ExerciseLog[]) {
-  return logs.flatMap((ex) =>
-    ex.sets
-      .filter((s) => s.completed && s.weight != null && typeof s.reps === 'number')
-      .map((s) => (s.weight ?? 0) * (s.reps as number))
-  ).reduce((a, b) => a + b, 0);
-}
 
 export default function SessionPage({ params }: { params: Promise<{ day: string }> }) {
   const { day: dayParam } = use(params);
@@ -62,26 +49,10 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   const [lastSession, setLastSession] = useState<WorkoutSession | null>(null);
   const [activeExercise, setActiveExercise] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (day) getLastSessionForDay(dayId).then(setLastSession);
   }, [dayId, day]);
-
-  useEffect(() => {
-    if (phase === 'active') {
-      startTimeRef.current = Date.now() - elapsed * 1000;
-      timerRef.current = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
 
   if (!day) {
     return (
@@ -99,7 +70,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   function startWorkout() {
     setLogs(buildInitialLogs(dayId, pct, lastSession));
     setActiveExercise(0);
-    setElapsed(0);
     setPhase('active');
   }
 
@@ -409,27 +379,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
             </section>
           )}
 
-          {/* Volume trend (decorative) */}
-          <section className="bg-surface-container-low rounded-[24px] p-6 border border-surface-container">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-label-md text-on-surface uppercase tracking-wider">Volume Trend</h3>
-              <span className="text-primary font-bold text-label-sm">
-                {calcVolume(logs).toLocaleString()} lbs total
-              </span>
-            </div>
-            <div className="h-20 w-full">
-              <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" style={{ stopColor: 'rgba(70,72,212,0.2)' }} />
-                    <stop offset="100%" style={{ stopColor: 'rgba(70,72,212,0)' }} />
-                  </linearGradient>
-                </defs>
-                <path d="M0,35 Q20,30 40,32 T70,10 T100,5 L100,40 L0,40 Z" fill="url(#chartGradient)" />
-                <path d="M0,35 Q20,30 40,32 T70,10 T100,5" fill="none" stroke="#4648d4" strokeWidth="1.5" />
-              </svg>
-            </div>
-          </section>
         </main>
 
         {/* Sticky footer */}
@@ -488,20 +437,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
         <section className="text-center mb-[48px]">
           <span className="text-label-md text-on-surface-variant tracking-wider block mb-2">Session Complete</span>
           <h1 className="text-display-lg text-primary mb-[24px]">Great Job!</h1>
-
-          {/* Stats grid */}
-          <div className="grid grid-cols-2 gap-[16px] mb-[24px]">
-            <div className="bg-surface-container-low border border-outline-variant p-[24px] rounded-[24px] flex flex-col items-center justify-center text-center">
-              <span className="material-symbols-outlined text-primary mb-2">timer</span>
-              <span className="text-label-sm text-on-surface-variant mb-1 uppercase tracking-widest">Duration</span>
-              <span className="text-headline-md text-on-surface">{formatElapsed(elapsed)}</span>
-            </div>
-            <div className="bg-surface-container-low border border-outline-variant p-[24px] rounded-[24px] flex flex-col items-center justify-center text-center">
-              <span className="material-symbols-outlined text-primary mb-2">weight</span>
-              <span className="text-label-sm text-on-surface-variant mb-1 uppercase tracking-widest">Volume</span>
-              <span className="text-headline-md text-on-surface">{calcVolume(logs).toLocaleString()} lbs</span>
-            </div>
-          </div>
 
           {/* Sets summary */}
           <div className="bg-surface-container-lowest rounded-[24px] p-5 border border-surface-container text-left">

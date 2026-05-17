@@ -12,7 +12,6 @@ function formatDate(dateStr: string) {
 }
 
 function getNextDayId(sessions: Record<number, WorkoutSession | null>): number {
-  // Find the most recently completed day, suggest the next one
   const completed = WORKOUT_DAYS.filter((d) => sessions[d.id]?.completed);
   if (completed.length === 0) return 1;
   if (completed.length === WORKOUT_DAYS.length) return WORKOUT_DAYS[0].id;
@@ -23,15 +22,6 @@ function getNextDayId(sessions: Record<number, WorkoutSession | null>): number {
   })[0];
   const nextIdx = (WORKOUT_DAYS.findIndex((d) => d.id === lastDone.id) + 1) % WORKOUT_DAYS.length;
   return WORKOUT_DAYS[nextIdx].id;
-}
-
-function getWeeklyCompletedCount(sessions: Record<number, WorkoutSession | null>): number {
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  return Object.values(sessions).filter((s) => {
-    if (!s?.completed) return false;
-    return new Date(s.date) >= weekAgo;
-  }).length;
 }
 
 export default function Home() {
@@ -51,12 +41,9 @@ export default function Home() {
   }, []);
 
   const nextDayId = loading ? -1 : getNextDayId(sessions);
-  const weeklyDone = getWeeklyCompletedCount(sessions);
-  const progressPct = (weeklyDone / WORKOUT_DAYS.length) * 100;
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32">
-      {/* TopAppBar */}
       <header className="bg-surface sticky top-0 z-50 flex justify-between items-center w-full px-[20px] h-16 border-b border-surface-container-highest">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-container flex items-center justify-center">
@@ -73,37 +60,6 @@ export default function Home() {
       </header>
 
       <main className="px-[20px] max-w-screen-xl mx-auto py-6">
-        {/* Weekly Progress */}
-        <section className="mb-[48px]">
-          <div className="bg-surface-container-low rounded-[24px] p-[24px] w-full flex items-center gap-6 border border-outline-variant/30">
-            <div
-              className="relative w-28 h-28 flex-shrink-0 flex items-center justify-center circular-progress rounded-full"
-              style={{ '--progress': `${progressPct}%` } as React.CSSProperties}
-            >
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-headline-md text-primary">{weeklyDone}/{WORKOUT_DAYS.length}</span>
-                <span className="text-label-sm text-on-surface-variant">Done</span>
-              </div>
-            </div>
-            <div className="flex-1">
-              <h2 className="text-headline-md mb-1">Weekly Progress</h2>
-              <p className="text-body-md text-on-surface-variant mb-4">
-                {weeklyDone === 0
-                  ? "Let's get your first session in!"
-                  : weeklyDone < WORKOUT_DAYS.length
-                  ? "You're making progress. Keep that momentum!"
-                  : 'Full week complete — outstanding work!'}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <div className="px-3 py-1 rounded-full bg-primary text-on-primary text-label-sm">
-                  {weeklyDone === 0 ? 'Just getting started' : `${weeklyDone} session${weeklyDone > 1 ? 's' : ''} this week`}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Day Cards */}
         <section>
           <div className="flex justify-between items-end mb-6">
             <h3 className="text-headline-md">Your Schedule</h3>
@@ -125,7 +81,6 @@ export default function Home() {
                         : 'bg-surface-container-low border-outline-variant/30'
                     }`}
                   >
-                    {/* Card header */}
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <span className={`text-label-sm uppercase tracking-wider ${isNext ? 'text-primary font-bold' : 'text-on-surface-variant'}`}>
@@ -149,7 +104,6 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Exercise list */}
                     <ul className="space-y-2 mb-6 text-on-surface-variant text-body-md">
                       {day.exercises.slice(0, 3).map((ex) => (
                         <li key={ex.name} className="flex items-center gap-2">
@@ -165,7 +119,6 @@ export default function Home() {
                       )}
                     </ul>
 
-                    {/* CTA */}
                     {isNext ? (
                       <button className="w-full py-4 rounded-xl bg-primary text-on-primary text-label-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
                         <span className="material-symbols-outlined text-[18px] icon-filled">play_arrow</span>
