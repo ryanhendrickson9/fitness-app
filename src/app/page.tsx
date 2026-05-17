@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { WORKOUT_DAYS } from '@/lib/workout-data';
 import { getLastSessionForDay } from '@/lib/storage';
 import { WorkoutSession } from '@/lib/types';
-import { BottomNav } from '@/components/BottomNav';
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
@@ -24,7 +23,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="bg-surface text-on-surface min-h-screen pb-32">
+    <div className="bg-surface text-on-surface min-h-screen pb-8">
       <header className="bg-surface sticky top-0 z-50 flex justify-between items-center w-full px-[20px] h-16 border-b border-surface-container-highest">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-container flex items-center justify-center">
@@ -108,7 +107,6 @@ export default function Home() {
         </section>
       </main>
 
-      <BottomNav />
     </div>
   );
 }

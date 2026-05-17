@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { WORKOUT_DAYS } from '@/lib/workout-data';
 import { getLastSessionForDay, saveSession } from '@/lib/storage';
 import { ExerciseLog, RPELevel, SetLog, WorkoutSession } from '@/lib/types';
-import { BottomNav } from '@/components/BottomNav';
 
 type Phase = 'setup' | 'active' | 'complete';
 
@@ -167,7 +166,8 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
                 const lastWeight = lastEx?.sets[0]?.weight;
                 const suggested = ex.isBodyweight ? null
                   : lastWeight != null ? Math.round(lastWeight * (1 + pct / 100) * 4) / 4
-                  : ex.defaultWeight;
+                  : ex.defaultWeight != null ? Math.round(ex.defaultWeight * (1 + pct / 100) * 4) / 4
+                  : null;
                 const diff = lastWeight != null && suggested != null ? suggested - lastWeight : null;
 
                 return (
@@ -224,7 +224,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
           </section>
         </main>
 
-        <BottomNav />
       </div>
     );
   }
@@ -412,7 +411,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
               </button>
             )}
           </div>
-          <BottomNav />
         </div>
       </div>
     );
@@ -501,7 +499,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
         </div>
       </main>
 
-      <BottomNav />
     </div>
   );
 }
