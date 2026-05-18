@@ -99,6 +99,8 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   }
 
   function logSet(exIdx: number, si: number) {
+    const totalSets = logs[exIdx]?.sets.length ?? 0;
+    const isLastSet = si === totalSets - 1;
     setLogs((prev) => prev.map((ex, ei) => ei !== exIdx ? ex : {
       ...ex,
       sets: ex.sets.map((s, i) => {
@@ -107,8 +109,13 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
         return s;
       }),
     }));
-    const totalSets = logs[exIdx]?.sets.length ?? 0;
-    if (si < totalSets - 1) setActiveSet(si + 1);
+    if (!isLastSet) {
+      setActiveSet(si + 1);
+    } else if (exIdx < day.exercises.length - 1) {
+      goToExercise(exIdx + 1);
+    } else {
+      setPhase('complete');
+    }
   }
 
   function tryNextExercise() {
@@ -269,7 +276,7 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
         {/* Top bar */}
         <header className="bg-surface border-b border-surface-container-highest flex flex-col w-full sticky top-0 z-50">
           <div className="flex justify-between items-center w-full px-[20px] h-16">
-            <h1 className="text-headline-md text-primary tracking-tight">Pulse</h1>
+            <h1 className="text-label-md text-primary tracking-tight whitespace-nowrap">{day.focus}</h1>
             <button
               onClick={() => setPhase('complete')}
               className="text-label-md text-on-surface-variant border border-outline-variant px-4 py-1.5 rounded-full hover:bg-surface-container transition-colors"
@@ -288,28 +295,39 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
           </div>
         </header>
 
-        <main className="max-w-[640px] mx-auto px-[20px] py-6 flex flex-col gap-6 pb-40">
-          {/* Exercise tabs */}
-          <nav className="flex gap-4 overflow-x-auto scrollbar-hide py-1 -mx-[20px] px-[20px]">
-            {day.exercises.map((ex, i) => {
-              const done = logs[i]?.sets.every((s) => s.completed);
-              return (
-                <button
-                  key={i}
-                  onClick={() => goToExercise(i)}
-                  className={`px-5 py-2 rounded-full border text-label-md whitespace-nowrap active:scale-95 transition-all ${
-                    i === activeExercise
-                      ? 'border-primary bg-primary text-on-primary'
-                      : done
-                      ? 'border-primary/40 bg-primary-fixed text-primary'
-                      : 'border-outline-variant bg-surface text-on-surface-variant'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
-          </nav>
+        <main className="max-w-[640px] mx-auto px-[20px] py-6 flex flex-col gap-6 pb-12">
+          {/* Exercise tabs + next arrow */}
+          <div className="flex items-center gap-3 -mx-[20px] px-[20px]">
+            <nav className="flex gap-3 overflow-x-auto scrollbar-hide py-1">
+              {day.exercises.map((ex, i) => {
+                const done = logs[i]?.sets.every((s) => s.completed);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => goToExercise(i)}
+                    className={`w-9 h-9 rounded-full border text-label-md flex-shrink-0 flex items-center justify-center active:scale-95 transition-all ${
+                      i === activeExercise
+                        ? 'border-primary bg-primary text-on-primary'
+                        : done
+                        ? 'border-primary/40 bg-primary-fixed text-primary'
+                        : 'border-outline-variant bg-surface text-on-surface-variant'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                );
+              })}
+            </nav>
+            {activeExercise < day.exercises.length - 1 && (
+              <button
+                onClick={tryNextExercise}
+                className="flex items-center gap-0.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors flex-shrink-0 ml-1"
+              >
+                Next
+                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              </button>
+            )}
+          </div>
 
           {currentLog && (
             <>
@@ -410,7 +428,9 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
                   ? 'Set Logged ✓'
                   : activeSet < totalSets - 1
                   ? `Log Set ${activeSet + 1} → Set ${activeSet + 2}`
-                  : `Log Final Set`}
+                  : activeExercise < day.exercises.length - 1
+                  ? 'Log Final Set & Next Exercise →'
+                  : 'Log Final Set & Finish'}
               </button>
 
               {completedForEx > 0 && (
@@ -421,35 +441,6 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
             </>
           )}
         </main>
-
-        {/* Sticky footer */}
-        <div className="fixed bottom-0 left-0 w-full z-50 bg-surface/90 backdrop-blur-lg px-[20px] py-4 flex gap-4 border-t border-surface-container-highest">
-          {activeExercise > 0 && (
-            <button
-              onClick={() => goToExercise(activeExercise - 1)}
-              className="px-6 py-4 rounded-xl border border-outline-variant text-on-surface-variant text-label-md active:scale-95 transition-transform"
-            >
-              ← Back
-            </button>
-          )}
-          {activeExercise < day.exercises.length - 1 ? (
-            <button
-              onClick={tryNextExercise}
-              className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-            >
-              Next Exercise
-              <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setPhase('complete')}
-              className="flex-1 py-4 px-6 bg-primary text-on-primary rounded-xl text-label-md active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-            >
-              {allDone ? 'Complete Workout' : 'Finish Up'}
-              <span className="material-symbols-outlined text-[18px]">{allDone ? 'check' : 'arrow_forward'}</span>
-            </button>
-          )}
-        </div>
 
         {/* Are you sure modal */}
         {confirmNext && (
