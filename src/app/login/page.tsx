@@ -27,8 +27,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-surface flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-10">
-          <h1 className="text-display-lg text-primary tracking-tight">Pulse</h1>
-          <p className="text-body-md text-on-surface-variant mt-2">Your workout tracker</p>
+          <h1 className="text-display-lg text-primary tracking-tight">Percy</h1>
+          <p className="text-body-md text-on-surface-variant mt-2">Percy Fitness</p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

@@ -111,7 +111,7 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
     }));
     if (!isLastSet) {
       setActiveSet(si + 1);
-    } else if (exIdx < day.exercises.length - 1) {
+    } else if (day && exIdx < day.exercises.length - 1) {
       goToExercise(exIdx + 1);
     } else {
       setPhase('complete');
@@ -476,7 +476,7 @@ export default function SessionPage({ params }: { params: Promise<{ day: string 
   return (
     <div className="bg-background text-on-background min-h-screen pb-32">
       <header className="bg-surface border-b border-surface-container-highest fixed top-0 left-0 w-full z-50 h-16 flex justify-between items-center px-[20px]">
-        <span className="text-headline-md text-primary tracking-tight">Pulse</span>
+        <span className="text-headline-md text-primary tracking-tight">Percy</span>
         <button
           onClick={() => setPhase('active')}
           className="text-on-surface-variant text-label-md flex items-center gap-1 hover:opacity-80"

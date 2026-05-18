@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Pulse — Workout Tracker',
+  title: 'Percy Fitness',
   description: 'Track your PT workouts',
 };
 

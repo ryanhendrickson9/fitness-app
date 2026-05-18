@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const PASSWORD = process.env.APP_PASSWORD ?? 'pulse';
-const COOKIE = 'pulse_auth';
+const COOKIE = 'percy_auth';
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
