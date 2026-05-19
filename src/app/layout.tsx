@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthWrapper } from '@/components/AuthWrapper';
 
 export const metadata: Metadata = {
   title: 'Percy Fitness',
@@ -22,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="bg-background text-on-surface min-h-dvh">
-        {children}
+        <AuthWrapper>{children}</AuthWrapper>
       </body>
     </html>
   );
